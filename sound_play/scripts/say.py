@@ -79,5 +79,5 @@ if __name__ == '__main__':
     rospy.loginfo('Voice: %s' % voice)
     rospy.loginfo('Volume: %s' % volume)
 
-    soundhandle.say(s, voice, volume)
+    soundhandle.say(s, voice, volume, 1)
     rospy.sleep(1)

@@ -26,5 +26,11 @@ int8 command # Indicates what to do with the sound
 # Volume at which to play the sound, with 0 as mute and 1.0 as 100%.
 float32 volume
 
+int8 priority # Priority of phrases for speech
+
+int8 PRIORITY_ONE = 1
+int8 PRIORITY_TWO = 2
+int8 PRIORITY_THREE = 3
+
 string arg # file name or text to say
 string arg2 # other arguments

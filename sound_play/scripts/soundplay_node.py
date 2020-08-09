@@ -47,11 +47,13 @@ import tempfile
 from diagnostic_msgs.msg import DiagnosticStatus, KeyValue, DiagnosticArray
 from sound_play.msg import SoundRequest, SoundRequestAction, SoundRequestResult, SoundRequestFeedback
 import actionlib
+from multiprocessing import Queue
 
 try:
     import gi
     gi.require_version('Gst', '1.0')
     from gi.repository import Gst as Gst
+    from gi.repository import GObject as GObject
 except:
     str="""
 **************************************************************
@@ -62,7 +64,6 @@ Error opening pygst. Is gstreamer installed?
     # print str
     exit(1)
 
-from gi.repository import GObject as GObject
 
 def sleep(t):
     try:
@@ -207,6 +208,8 @@ class soundtype:
 class soundplay:
     _feedback = SoundRequestFeedback()
     _result   = SoundRequestResult()
+    _queues_to_say = {1: Queue(), 2: Queue(), 3: Queue()}
+    _last_sound_say = None
 
     def stopdict(self,dict):
         for sound in dict.values():
@@ -249,36 +252,11 @@ class soundplay:
                         self.filesounds[absfilename].sound.set_property('volume', data.volume)
                 sound = self.filesounds[absfilename]
         elif data.sound == SoundRequest.SAY:
-            # print data
-            if not data.arg in self.voicesounds.keys():
-                rospy.logdebug('command for uncached text: "%s"' % data.arg)
-                txtfile = tempfile.NamedTemporaryFile(prefix='sound_play', suffix='.txt')
-                (wavfile,wavfilename) = tempfile.mkstemp(prefix='sound_play', suffix='.wav')
-                txtfilename=txtfile.name
-                os.close(wavfile)
-                voice = data.arg2
-                try:
-                    try:
-                        txtfile.write(data.arg.decode('UTF-8').encode('ISO-8859-15'))
-                    except UnicodeEncodeError:
-                        txtfile.write(data.arg)
-                    txtfile.flush()
-                    os.system("text2wave -eval '("+voice+")' "+txtfilename+" -o "+wavfilename)
-                    try:
-                        if os.stat(wavfilename).st_size == 0:
-                            raise OSError # So we hit the same catch block
-                    except OSError:
-                        rospy.logerr('Sound synthesis failed. Is festival installed? Is a festival voice installed? Try running "rosdep satisfy sound_play|sh". Refer to http://wiki.ros.org/sound_play/Troubleshooting')
-                        return
-                    self.voicesounds[data.arg] = soundtype(wavfilename, self.device, data.volume)
-                finally:
-                    txtfile.close()
+            if data.command == SoundRequest.PLAY_STOP:
+                self._loading_speaking_command(data)
             else:
-                rospy.logdebug('command for cached text: "%s"'%data.arg)
-                if self.voicesounds[data.arg].sound.get_property('volume') != data.volume:
-                    rospy.logdebug('volume for cached text has changed, resetting volume')
-                    self.voicesounds[data.arg].sound.set_property('volume', data.volume)
-            sound = self.voicesounds[data.arg]
+                self._add_to_queue_to_say(data)
+            sound = None
         else:
             rospy.logdebug('command for builtin wave: %i'%data.sound)
             if data.sound not in self.builtinsounds or (data.sound in self.builtinsounds and data.volume != self.builtinsounds[data.sound].volume):
@@ -288,7 +266,8 @@ class soundplay:
                     volume = (volume + params[1])/2
                 self.builtinsounds[data.sound] = soundtype(params[0], self.device, volume)
             sound = self.builtinsounds[data.sound]
-        if sound.staleness != 0 and data.command != SoundRequest.PLAY_STOP:
+        if sound is not None and \
+                sound.staleness != 0 and data.command != SoundRequest.PLAY_STOP:
             # This sound isn't counted in active_sounds
             rospy.logdebug("activating %i %s"%(data.sound,data.arg))
             self.active_sounds = self.active_sounds + 1
@@ -298,6 +277,68 @@ class soundplay:
             #                        self.num_channels = self.active_sounds
         return sound
 
+    def _add_to_queue_to_say(self, data):
+        try:
+            self._queues_to_say[data.priority].put(data)
+        except Exception as e:
+            rospy.logdebug("Exception in _add_to_queue_to_say: " + str(e) +
+                            "\nMaybe invalid priority level: " + str(data.priority))
+
+    def _say_from_queue(self):
+        if self._last_sound_say is None:
+            data = None
+            if not self._queues_to_say[SoundRequest.PRIORITY_ONE].empty():
+                data = self._queues_to_say[SoundRequest.PRIORITY_ONE].get()
+            
+            elif not self._queues_to_say[SoundRequest.PRIORITY_TWO].empty():
+                data = self._queues_to_say[SoundRequest.PRIORITY_TWO].get()
+            
+            elif not self._queues_to_say[SoundRequest.PRIORITY_THREE].empty():
+                data = self._queues_to_say[SoundRequest.PRIORITY_THREE].get()
+            
+            if data is not None:
+                sound_say = self._loading_speaking_command(data)
+                sound_say.command(data.command)
+                self._last_sound_say = sound_say
+
+    def _end_phrase_check(self):
+        if self._last_sound_say is not None and \
+                self._last_sound_say.get_staleness() != 0:
+            self._last_sound_say = None
+
+
+    def _loading_speaking_command(self, data):
+        if not data.arg in self.voicesounds.keys():
+            rospy.logdebug('command for uncached text: "%s"' % data.arg)
+            txtfile = tempfile.NamedTemporaryFile(prefix='sound_play', suffix='.txt')
+            (wavfile,wavfilename) = tempfile.mkstemp(prefix='sound_play', suffix='.wav')
+            txtfilename=txtfile.name
+            os.close(wavfile)
+            voice = data.arg2
+            try:
+                try:
+                    txtfile.write(data.arg.decode('UTF-8').encode('ISO-8859-15'))
+                except UnicodeEncodeError:
+                    txtfile.write(data.arg)
+                txtfile.flush()
+                os.system("text2wave -eval '("+voice+")' "+txtfilename+" -o "+wavfilename)
+                try:
+                    if os.stat(wavfilename).st_size == 0:
+                        raise OSError # So we hit the same catch block
+                except OSError:
+                    rospy.logerr('Sound synthesis failed. Is festival installed? Is a festival voice installed? Try running "rosdep satisfy sound_play|sh". Refer to http://wiki.ros.org/sound_play/Troubleshooting')
+                    return
+                self.voicesounds[data.arg] = soundtype(wavfilename, self.device, data.volume)
+            finally:
+                txtfile.close()
+        else:
+            rospy.logdebug('command for cached text: "%s"'%data.arg)
+            if self.voicesounds[data.arg].sound.get_property('volume') != data.volume:
+                rospy.logdebug('volume for cached text has changed, resetting volume')
+                self.voicesounds[data.arg].sound.set_property('volume', data.volume)
+        sound = self.voicesounds[data.arg]
+        return sound
+        
     def callback(self,data):
         if not self.initialized:
             return
@@ -308,7 +349,9 @@ class soundplay:
                 self.stopall()
             else:
                 sound = self.select_sound(data)
-                sound.command(data.command)
+                if data.sound != SoundRequest.SAY or \
+                        data.command == SoundRequest.PLAY_STOP:
+                    sound.command(data.command)
         except Exception as e:
             rospy.logerr('Exception in callback: %s'%str(e))
             rospy.loginfo(traceback.format_exc())
@@ -492,6 +535,8 @@ class soundplay:
                  len(self.builtinsounds) + len(self.voicesounds) + len(self.filesounds) > 0) \
                 and not rospy.is_shutdown():
             #print "idle_loop"
+            self._end_phrase_check()
+            self._say_from_queue()
             self.diagnostics(0)
             self.sleep(1)
             self.cleanup()

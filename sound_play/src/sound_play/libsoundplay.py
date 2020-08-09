@@ -159,9 +159,9 @@ class SoundClient(object):
 ##
 ## \param text String to say
 
-    def say(self,text, voice='', volume=1.0, **kwargs):
+    def say(self,text, voice='', volume=1.0, priority=1, **kwargs):
         self.sendMsg(SoundRequest.SAY, SoundRequest.PLAY_ONCE, text, voice,
-                     volume, **kwargs)
+                     volume, priority, **kwargs)
 
 ## \brief Say a string repeatedly
 ##
@@ -169,9 +169,9 @@ class SoundClient(object):
 ##
 ## \param text String to say repeatedly
 
-    def repeat(self,text, volume=1.0, **kwargs):
+    def repeat(self,text, volume=1.0, priority=1, **kwargs):
         self.sendMsg(SoundRequest.SAY, SoundRequest.PLAY_START, text,
-                     vol=volume, **kwargs)
+                     vol=volume, prior=priority, **kwargs)
 
 ## \brief Stop saying a string
 ##
@@ -298,7 +298,7 @@ class SoundClient(object):
     def stopAll(self):
         self.stop(SoundRequest.ALL)
 
-    def sendMsg(self, snd, cmd, s, arg2="", vol=1.0, **kwargs):
+    def sendMsg(self, snd, cmd, s, arg2="", vol=1.0, prior = 1, **kwargs):
         """
         Internal method that publishes the sound request, either directly as a
         SoundRequest to the soundplay_node or through the actionlib interface
@@ -319,6 +319,7 @@ class SoundClient(object):
         msg.command = cmd
         msg.arg = s
         msg.arg2 = arg2
+        msg.priority = prior
 
         rospy.logdebug('Sending sound request with volume = {}'
                        ' and blocking = {}'.format(msg.volume, blocking))
