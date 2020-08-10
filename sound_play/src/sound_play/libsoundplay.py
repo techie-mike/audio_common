@@ -36,7 +36,7 @@
 
 import rospy
 import roslib
-import actionlib
+# import actionlib
 import os, sys
 from sound_play.msg import SoundRequest
 from sound_play.msg import SoundRequestGoal
@@ -118,8 +118,8 @@ class SoundClient(object):
 
         # NOTE: only one of these will be used at once, but we need to create
         # both the publisher and actionlib client here.
-        self.actionclient = actionlib.SimpleActionClient(
-            sound_action, SoundRequestAction)
+        # self.actionclient = actionlib.SimpleActionClient(
+        #     sound_action, SoundRequestAction)
         self.pub = rospy.Publisher(sound_topic, SoundRequest, queue_size=5)
 
 ## \brief Create a voice Sound.

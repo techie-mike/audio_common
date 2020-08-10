@@ -46,7 +46,7 @@ import traceback
 import tempfile
 from diagnostic_msgs.msg import DiagnosticStatus, KeyValue, DiagnosticArray
 from sound_play.msg import SoundRequest, SoundRequestAction, SoundRequestResult, SoundRequestFeedback
-import actionlib
+# import actionlib
 from multiprocessing import Queue
 
 try:
@@ -415,6 +415,7 @@ class soundplay:
         except Exception as e:
             rospy.loginfo('Exception in diagnostics: %s'%str(e))
 
+    """
     def execute_cb(self, data):
         data = data.sound_request
         if not self.initialized:
@@ -458,6 +459,7 @@ class soundplay:
         finally:
             self.mutex.release()
             rospy.logdebug("done actionlib callback")
+    """
 
     def __init__(self):
         Gst.init(None)
@@ -489,8 +491,8 @@ class soundplay:
 
         self.mutex = threading.Lock()
         sub = rospy.Subscriber("robotsound", SoundRequest, self.callback)
-        self._as = actionlib.SimpleActionServer('sound_play', SoundRequestAction, execute_cb=self.execute_cb, auto_start = False)
-        self._as.start()
+        # self._as = actionlib.SimpleActionServer('sound_play', SoundRequestAction, execute_cb=self.execute_cb, auto_start = False)
+        # self._as.start()
 
         self.mutex.acquire()
         self.sleep(0.5) # For ros startup race condition
