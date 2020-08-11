@@ -287,14 +287,14 @@ class soundplay:
     def _say_from_queue(self):
         if self._last_sound_say is None:
             data = None
-            if not self._queues_to_say[SoundRequest.PRIORITY_ONE].empty():
-                data = self._queues_to_say[SoundRequest.PRIORITY_ONE].get()
+            if not self._queues_to_say[SoundRequest.PRIORITY_THREE].empty():
+                data = self._queues_to_say[SoundRequest.PRIORITY_THREE].get()
             
             elif not self._queues_to_say[SoundRequest.PRIORITY_TWO].empty():
                 data = self._queues_to_say[SoundRequest.PRIORITY_TWO].get()
             
-            elif not self._queues_to_say[SoundRequest.PRIORITY_THREE].empty():
-                data = self._queues_to_say[SoundRequest.PRIORITY_THREE].get()
+            elif not self._queues_to_say[SoundRequest.PRIORITY_ONE].empty():
+                data = self._queues_to_say[SoundRequest.PRIORITY_ONE].get()
             
             if data is not None:
                 sound_say = self._loading_speaking_command(data)
