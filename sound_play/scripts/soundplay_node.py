@@ -374,9 +374,12 @@ class soundplay:
             if staleness == 0: # Sound is playing
                 self.active_sounds = self.active_sounds + 1
         for key in purgelist:
-           rospy.logdebug('Purging %s from cache'%key)
-           dict[key].dispose() # clean up resources
-           del dict[key]
+            rospy.logdebug('Purging %s from cache'%key)
+            if dict[key].file[0:4] == "/tmp":
+                os.remove(dict[key].file) 
+                rospy.loginfo("Remove " + dict[key].file)
+            dict[key].dispose() # clean up resources
+            del dict[key]
 
     def cleanup(self):
         self.mutex.acquire()
