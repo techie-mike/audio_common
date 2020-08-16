@@ -1,5 +1,6 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <gst/gstplugin.h>
 #include <ros/ros.h>
 #include <boost/thread.hpp>
 
@@ -70,8 +71,17 @@ namespace audio_transport
             if (!device.empty()) {
               g_object_set(G_OBJECT(_sink), "device", device.c_str(), NULL);
             }
-            gst_bin_add_many( GST_BIN(_audio), _convert, _sink, NULL);
-            gst_element_link(_convert, _sink);
+
+            GstElement *_rgvolume = gst_element_factory_make ("rgvolume", "volume");
+            
+            // ------------------------ gain setting ------------------------
+            g_object_set(G_OBJECT(_rgvolume), "headroom",       20.0, NULL);
+            g_object_set(G_OBJECT(_rgvolume), "fallback-gain",  20.0, NULL);
+            // ------------------------ gain setting ------------------------
+
+            gst_bin_add_many( GST_BIN(_audio), _convert, _rgvolume, _sink, NULL);
+            gst_element_link(_convert, _rgvolume);
+            gst_element_link(_rgvolume, _sink);
             gst_element_add_pad(_audio, gst_ghost_pad_new("sink", audiopad));
             gst_object_unref(audiopad);
             gst_caps_unref(caps);
