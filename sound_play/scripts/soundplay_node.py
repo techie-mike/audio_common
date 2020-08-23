@@ -377,7 +377,7 @@ class soundplay:
             rospy.logdebug('Purging %s from cache'%key)
             if dict[key].file[0:4] == "/tmp":
                 os.remove(dict[key].file) 
-                rospy.loginfo("Remove " + dict[key].file)
+                rospy.logdebug("Remove " + dict[key].file)
             dict[key].dispose() # clean up resources
             del dict[key]
 
