@@ -28,9 +28,9 @@ float32 volume
 
 int8 priority # Priority of phrases for speech
 
-int8 PRIORITY_ONE = 1
-int8 PRIORITY_TWO = 2
-int8 PRIORITY_THREE = 3
+int8 PRIORITY_ONE = 0
+int8 PRIORITY_TWO = 1
+int8 PRIORITY_THREE = 2
 
 string arg # file name or text to say
 string arg2 # other arguments

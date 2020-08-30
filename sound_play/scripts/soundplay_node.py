@@ -46,8 +46,9 @@ import traceback
 import tempfile
 from diagnostic_msgs.msg import DiagnosticStatus, KeyValue, DiagnosticArray
 from sound_play.msg import SoundRequest, SoundRequestAction, SoundRequestResult, SoundRequestFeedback
-# import actionlib
-from multiprocessing import Queue
+
+from multiprocessing import Queue, Value
+from ctypes import c_bool
 
 try:
     import gi
@@ -76,6 +77,8 @@ class soundtype:
     STOPPED = 0
     LOOPING = 1
     COUNTING = 2
+
+    _sound_say_started = Value(c_bool, False)
 
     def __init__(self, file, device, volume = 1.0):
         self.lock = threading.RLock()
@@ -166,6 +169,7 @@ class soundtype:
         try:
             rospy.logdebug("Playing %s"%self.uri)
             self.staleness = 0
+            self._sound_say_started.value = False
             if self.state == self.LOOPING:
                 self.stop()
 
@@ -183,10 +187,11 @@ class soundtype:
          elif cmd == SoundRequest.PLAY_START:
              self.loop()
 
-    def get_staleness(self):
+    def get_staleness(self, check_playing=False):
         self.lock.acquire()
         position = 0
         duration = 0
+        staleness = 0
         try:
             position = self.sound.query_position(Gst.Format.TIME)[1]
             duration = self.sound.query_duration(Gst.Format.TIME)[1]
@@ -197,10 +202,19 @@ class soundtype:
             self.lock.release()
 
         if position != duration:
-            self.staleness = 0
+            staleness = 0
+
         else:
-            self.staleness = self.staleness + 1
-        return self.staleness
+            staleness = self.staleness + 1
+                    
+        if  self._sound_say_started.value is False and duration == -1:
+            staleness = 0
+        elif self._sound_say_started.value is False:
+            self._sound_say_started.value = True
+        
+        if check_playing is False:
+            self.staleness = staleness
+        return staleness
 
     def get_playing(self):
         return self.state == self.COUNTING
@@ -208,8 +222,12 @@ class soundtype:
 class soundplay:
     _feedback = SoundRequestFeedback()
     _result   = SoundRequestResult()
-    _queues_to_say = {1: Queue(), 2: Queue(), 3: Queue()}
+
+    _queues_to_say = [Queue(), Queue(), Queue()]
+    _queues_to_say_busy = Value(c_bool, False)
+
     _last_sound_say = None
+    _sound_say_busy = Value(c_bool, False)
 
     def stopdict(self,dict):
         for sound in dict.values():
@@ -281,11 +299,11 @@ class soundplay:
         try:
             self._queues_to_say[data.priority].put(data)
         except Exception as e:
-            rospy.logdebug("Exception in _add_to_queue_to_say: " + str(e) +
+            rospy.logerr("Exception in _add_to_queue_to_say: " + str(e) +
                             "\nMaybe invalid priority level: " + str(data.priority))
 
     def _say_from_queue(self):
-        if self._last_sound_say is None:
+        if self._sound_say_busy.value is False:
             data = None
             if not self._queues_to_say[SoundRequest.PRIORITY_THREE].empty():
                 data = self._queues_to_say[SoundRequest.PRIORITY_THREE].get()
@@ -297,15 +315,17 @@ class soundplay:
                 data = self._queues_to_say[SoundRequest.PRIORITY_ONE].get()
             
             if data is not None:
+                self._sound_say_busy.value = True     
+                # No need to check the lock as it is an atomic action
+
                 sound_say = self._loading_speaking_command(data)
                 sound_say.command(data.command)
                 self._last_sound_say = sound_say
 
     def _end_phrase_check(self):
-        if self._last_sound_say is not None and \
-                self._last_sound_say.get_staleness() != 0:
-            self._last_sound_say = None
-
+        if self._sound_say_busy.value is True and \
+                self._last_sound_say.get_staleness(True) != 0:
+            self._sound_say_busy.value = False
 
     def _loading_speaking_command(self, data):
         if not data.arg in self.voicesounds.keys():
@@ -418,52 +438,6 @@ class soundplay:
         except Exception as e:
             rospy.loginfo('Exception in diagnostics: %s'%str(e))
 
-    """
-    def execute_cb(self, data):
-        data = data.sound_request
-        if not self.initialized:
-            return
-        self.mutex.acquire()
-        # Force only one sound at a time
-        self.stopall()
-        try:
-            if data.sound == SoundRequest.ALL and data.command == SoundRequest.PLAY_STOP:
-                self.stopall()
-            else:
-                sound = self.select_sound(data)
-                sound.command(data.command)
-
-                r = rospy.Rate(1)
-                start_time = rospy.get_rostime()
-                success = True
-                while sound.get_playing():
-                    sound.update()
-                    if self._as.is_preempt_requested():
-                        rospy.loginfo('sound_play action: Preempted')
-                        sound.stop()
-                        self._as.set_preempted()
-                        success = False
-                        break
-
-                    self._feedback.playing = sound.get_playing()
-                    self._feedback.stamp = rospy.get_rostime() - start_time
-                    self._as.publish_feedback(self._feedback)
-                    r.sleep()
-
-                if success:
-                    self._result.playing = self._feedback.playing
-                    self._result.stamp = self._feedback.stamp
-                    rospy.loginfo('sound_play action: Succeeded')
-                    self._as.set_succeeded(self._result)
-
-        except Exception as e:
-            rospy.logerr('Exception in actionlib callback: %s'%str(e))
-            rospy.loginfo(traceback.format_exc())
-        finally:
-            self.mutex.release()
-            rospy.logdebug("done actionlib callback")
-    """
-
     def __init__(self):
         Gst.init(None)
 
@@ -539,13 +513,16 @@ class soundplay:
         while (rospy.get_time() - self.last_activity_time < 10 or
                  len(self.builtinsounds) + len(self.voicesounds) + len(self.filesounds) > 0) \
                 and not rospy.is_shutdown():
-            #print "idle_loop"
+            self.diagnostics(0)
+            self._say_phrase_with_delay_one_sec(20)
+            self.cleanup()
+
+    def _say_phrase_with_delay_one_sec(self, hz):
+        one_delay = 1.0 / hz
+        for i in range(hz):
             self._end_phrase_check()
             self._say_from_queue()
-            self.diagnostics(0)
-            self.sleep(1)
-            self.cleanup()
-        #print "idle_exiting"
+            self.sleep(one_delay)
 
 if __name__ == '__main__':
     soundplay()
